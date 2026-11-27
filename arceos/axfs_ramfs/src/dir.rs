@@ -67,6 +67,44 @@ impl DirNode {
         children.remove(name);
         Ok(())
     }
+
+    fn rename_in_dir(&self, dir: &str, src_name: &str, dst_name: &str) -> VfsResult {
+        let Some((head, tail)) = dir.split_once('/') else {
+            let node = self
+                .children
+                .read()
+                .get(dir)
+                .cloned()
+                .ok_or(VfsError::NotFound)?;
+            let dir = node
+                .as_any()
+                .downcast_ref::<DirNode>()
+                .ok_or(VfsError::NotADirectory)?;
+            return dir.rename_here(src_name, dst_name);
+        };
+
+        let node = self
+            .children
+            .read()
+            .get(head)
+            .cloned()
+            .ok_or(VfsError::NotFound)?;
+        let dir = node
+            .as_any()
+            .downcast_ref::<DirNode>()
+            .ok_or(VfsError::NotADirectory)?;
+        dir.rename_in_dir(tail, src_name, dst_name)
+    }
+
+    fn rename_here(&self, src_name: &str, dst_name: &str) -> VfsResult {
+        let mut children = self.children.write();
+        if children.contains_key(dst_name) {
+            return Err(VfsError::AlreadyExists);
+        }
+        let node = children.remove(src_name).ok_or(VfsError::NotFound)?;
+        children.insert(dst_name.into(), node);
+        Ok(())
+    }
 }
 
 impl VfsNodeOps for DirNode {
@@ -163,6 +201,34 @@ impl VfsNodeOps for DirNode {
         } else {
             self.remove_node(name)
         }
+    }
+
+    fn rename(&self, src_path: &str, dst_path: &str) -> VfsResult {
+        log::debug!("rename at ramfs: {} -> {}", src_path, dst_path);
+        let src = src_path.trim_start_matches('/');
+        let dst = dst_path.trim_start_matches('/');
+        let (src_dir, src_name) = src.rsplit_once('/').unwrap_or(("", src));
+        let (dst_dir, dst_name) = dst.rsplit_once('/').unwrap_or(("", dst));
+
+        if src_dir != dst_dir {
+            return Err(VfsError::InvalidInput);
+        }
+        if src_name.is_empty()
+            || dst_name.is_empty()
+            || src_name == "."
+            || src_name == ".."
+            || dst_name == "."
+            || dst_name == ".."
+        {
+            return Err(VfsError::InvalidInput);
+        }
+        if src_name == dst_name {
+            return Ok(());
+        }
+        if !src_dir.is_empty() {
+            return self.rename_in_dir(src_dir, src_name, dst_name);
+        }
+        self.rename_here(src_name, dst_name)
     }
 
     axfs_vfs::impl_vfs_dir_default! {}
