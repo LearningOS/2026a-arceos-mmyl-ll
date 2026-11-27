@@ -20,7 +20,7 @@ use vcpu::VmCpuRegisters;
 use riscv::register::{scause, sstatus, stval};
 use csrs::defs::hstatus;
 use tock_registers::LocalRegisterCopy;
-use csrs::{RiscvCsrTrait, CSR};
+use csrs::{traps, RiscvCsrTrait, CSR};
 use vcpu::_run_guest;
 use sbi::SbiMessage;
 use loader::load_vm_image;
@@ -77,7 +77,7 @@ fn run_guest(ctx: &mut VmCpuRegisters) -> bool {
 
 #[allow(unreachable_code)]
 fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
-    use scause::{Exception, Trap};
+    use scause::{Exception, Interrupt, Trap};
 
     let scause = scause::read();
     match scause.cause() {
@@ -113,6 +113,11 @@ fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
                 ctx.guest_regs.sepc
             );
         },
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            // A host timer may fire while the guest is active. Return to the
+            // main loop and re-enter the guest after the timer is serviced.
+            return false;
+        },
         _ => {
             panic!(
                 "Unhandled trap: {:?}, sepc: {:#x}, stval: {:#x}",
@@ -126,6 +131,10 @@ fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
 }
 
 fn prepare_guest_context(ctx: &mut VmCpuRegisters) {
+    // Avoid a pending host timer racing with the first guest entry.
+    CSR.sie
+        .read_and_clear_bits(traps::interrupt::SUPERVISOR_TIMER);
+
     // Set hstatus
     let mut hstatus = LocalRegisterCopy::<usize, hstatus::Register>::new(
         riscv::register::hstatus::read().bits(),
@@ -134,13 +143,16 @@ fn prepare_guest_context(ctx: &mut VmCpuRegisters) {
     hstatus.modify(hstatus::spv::Guest);
     // Set SPVP bit in order to accessing VS-mode memory from HS-mode.
     hstatus.modify(hstatus::spvp::Supervisor);
+    // The guest runs native 64-bit code.
+    hstatus.modify(hstatus::vsxl::Xlen64);
     CSR.hstatus.write_value(hstatus.get());
     ctx.guest_regs.hstatus = hstatus.get();
 
     // Set sstatus in guest mode.
     let mut sstatus = sstatus::read();
     sstatus.set_spp(sstatus::SPP::Supervisor);
-    ctx.guest_regs.sstatus = sstatus.bits();
+    // Clear SIE in the guest value while preserving SPP=Supervisor.
+    ctx.guest_regs.sstatus = sstatus.bits() & !(1 << 1);
     // Return to entry to start vm.
     ctx.guest_regs.sepc = VM_ENTRY;
 }
