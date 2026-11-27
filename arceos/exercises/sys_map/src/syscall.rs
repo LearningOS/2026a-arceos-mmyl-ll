@@ -8,6 +8,7 @@ use axtask::current;
 use axtask::TaskExtRef;
 use axhal::paging::MappingFlags;
 use arceos_posix_api as api;
+use alloc::vec;
 use memory_addr::{VirtAddr, VirtAddrRange, PAGE_SIZE_4K};
 
 const SYS_IOCTL: usize = 29;
@@ -187,11 +188,18 @@ fn sys_mmap(
                 let _ = aspace.unmap(start, length);
                 return Err(LinuxError::EINVAL);
             }
-            let n = api::sys_read(fd, start.as_usize() as *mut c_void, length);
+            // Read into a kernel buffer first. The mapped address is a user
+            // virtual address and is not directly accessible from the kernel
+            // page table; it must be copied through AddrSpace::write.
+            let mut buffer = vec![0u8; length];
+            let n = api::sys_read(fd, buffer.as_mut_ptr().cast(), length);
             if n < 0 {
                 let _ = aspace.unmap(start, length);
                 return Err(LinuxError::EIO);
             }
+            aspace
+                .write(start, &buffer[..n as usize])
+                .map_err(|_| LinuxError::EFAULT)?;
         }
 
         Ok(start.as_usize())
