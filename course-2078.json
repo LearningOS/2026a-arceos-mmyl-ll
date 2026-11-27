@@ -2,7 +2,7 @@
   "schema": 1,
   "courseId": 2078,
   "repository": "LearningOS/2026a-arceos-mmyl-ll",
-  "commit": "4c303453edc2cec0801338084bd85cb3ad6469d1",
+  "commit": "8f2f19e0214ce5f78eaffcaffe01eb56214aa0a3",
   "score": 500,
   "totalScore": 600,
   "exercises": [
@@ -37,22 +37,22 @@
     {
       "name": "sys_map",
       "max": 100,
-      "score": 0,
-      "status": "fail",
+      "score": 100,
+      "status": "pass",
       "exitCode": 0
     },
     {
       "name": "simple_hv",
       "max": 100,
-      "score": 100,
-      "status": "pass",
-      "exitCode": 0
+      "score": 0,
+      "status": "timeout",
+      "exitCode": 124
     }
   ],
   "student": "mmyl-ll",
-  "runId": "45972210071",
+  "runId": "45972797735",
   "runAttempt": "1",
   "upload": {
-    "status": "accepted"
+    "status": "pending"
   }
 }
